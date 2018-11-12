@@ -25,6 +25,7 @@ try:
     # Should nopt be given to the student
     # ------------------------------------------------------------------------------------------------------
     def add_new_element_to_store(entry_sequence, element, is_propagated_call=False):
+        
         global board, node_id
         success = False
         try:
@@ -36,6 +37,7 @@ try:
         return success
 
     def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
+        
         global board, node_id
         success = False
         try:
@@ -47,6 +49,7 @@ try:
         return success
 
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
+        
         global board, node_id
         success = False
         try:
@@ -64,6 +67,7 @@ try:
     def contact_vessel(vessel_ip, path, payload=None, req='POST'):
         # Try to contact another server (vessel) through a POST or GET, once
         success = False
+        
         try:
             if 'POST' in req:
                 res = requests.post('http://{}{}'.format(vessel_ip, path), data=payload)
@@ -80,11 +84,14 @@ try:
         return success
 
     def propagate_to_vessels(path, payload = None, req = 'POST'):
+        
         global vessel_list, node_id
 
         for vessel_id, vessel_ip in vessel_list.items():
             if int(vessel_id) != node_id: # don't propagate to yourself
-                Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,)).start()
+                t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
+                t.deamon = True
+                t.start()
                 # success = contact_vessel(vessel_ip, path, payload, req)
                 # if not success:
                 #     print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
@@ -97,12 +104,14 @@ try:
     # ------------------------------------------------------------------------------------------------------
     @app.route('/')
     def index():
+
         global board, node_id
         print "Board: ", board
-        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='YOUR NAME')
+        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
 
     @app.get('/board')
     def get_board():
+
         global board, node_id
         print board
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
@@ -120,22 +129,22 @@ try:
             propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
             # Increment entry id, to keep track of number of entries
             entry_id += 1
-            # you should propagate something
-            # Please use threads to avoid blocking
-            #thread = Thread(target=???,args=???)
-            # you should create the thread as a deamon
+
             return True
         except Exception as e:
             print e
         return False
 
+    """The function client_action_received receives an element_id from the POST http-message.
+    The value stored on the blackboard is stored in the 'mod_element' variable
+    in 'delete' the value 0 or 1 is stored which we leverage to choose delete or modify
+    we call the correct function and later propagates the changes to the rest vessels
+    """
     @app.post('/board/<element_id:int>/')
     def client_action_received(element_id):
+        
         try:
-            # First fetch modified element and then get the delete value
-            # Casting delete to integer
             mod_element = request.forms.get('entry')
-
             delete = int(request.forms.get('delete'))
 
             if delete == True:
@@ -150,19 +159,29 @@ try:
             print e
         return False
 
+    """Propagation_received takes two arguments, action and element_id
+    this POST http-message is issued by some vessel which has been posted with som changes
+    here we have the global variable entry_id which every vessel in the system will update accordingly
+    if there are a new element added. 
+
+    Three actions are available, add, modify or delete. 
+    The element are fetched from the http-messages body    
+    """
     @app.post('/propagate/<action>/<element_id:int>')
     def propagation_received(action, element_id):
-        # Must have this so we can keep track of which id we are on
+        
         global entry_id
         try:
+            # Action add, adding new element to our board, updating entry_id
+            # to be consistent in our system
             if action == 'add':
+                # Updated here and in client_add_received function
                 entry_id += 1
                 element = request.body.readlines()[0]
                 add_new_element_to_store(element_id, element)
             
             elif action == 'modify':
                 mod_element = request.body.readlines()[0]
-                print element_id, mod_element
                 modify_element_in_store(element_id, mod_element)
             
             elif action == 'delete':
