@@ -3,11 +3,18 @@ from sys import argv
 
 """How to use:
 
-$ python tests/single_client.py [action] [item]
+$ python tests/single_client.py [action] [items] [modification]
 
-where actions are either post, modify or delete
-and item is an integer between 0 and N where N is 
-the total element on your board"""
+where actions are either [post, modify or delete]
+and items are an integer between 0 and N where N is 
+the total element on your board
+
+Example:
+$ python tests/single_client.py modify 2 hello-world
+$ python tests/single_client.py post 2
+$ python tests/single_client.py delete 5
+
+"""
 
 payload = {}
 

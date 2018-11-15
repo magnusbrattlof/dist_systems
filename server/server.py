@@ -3,27 +3,30 @@
 # TDA596 - Lab 1
 # server/server.py
 # Input: Node_ID total_number_of_ID
-# Student: John Doe
+# Student: Magnus Brattlof
+# CID: brattlof
+# Email {cid}@student.chalmers.se
 # ------------------------------------------------------------------------------------------------------
+
+from bottle import Bottle, run, request, template
+from threading import Thread
 import traceback
+import argparse
+import requests
 import sys
 import time
 import json
-import argparse
-from threading import Thread
 
-from bottle import Bottle, run, request, template
-import requests
 # ------------------------------------------------------------------------------------------------------
 try:
     app = Bottle()
 
     board = {}
 
-    # ------------------------------------------------------------------------------------------------------
-    # BOARD FUNCTIONS
-    # Should nopt be given to the student
-    # ------------------------------------------------------------------------------------------------------
+    """Board functions:
+    Handles how the vessels are adding new elements, 
+    how to modify elements and how to delete specified elements. 
+    """
     def add_new_element_to_store(entry_sequence, element, is_propagated_call=False):
         
         global board, node_id
@@ -60,10 +63,9 @@ try:
             print e
         return success
 
-    # ------------------------------------------------------------------------------------------------------
-    # DISTRIBUTED COMMUNICATIONS FUNCTIONS
-    # should be given to the students?
-    # ------------------------------------------------------------------------------------------------------
+    """How to propagate messages:
+    The server that receives the post message from client calls this function
+    from propagate_vessels function. """
     def contact_vessel(vessel_ip, path, payload=None, req='POST'):
         # Try to contact another server (vessel) through a POST or GET, once
         success = False
@@ -75,8 +77,7 @@ try:
                 res = requests.get('http://{}{}'.format(vessel_ip, path))
             else:
                 print 'Non implemented feature!'
-            # result is in res.text or res.json()
-            print(res.text)
+
             if res.status_code == 200:
                 success = True
         except Exception as e:
@@ -92,10 +93,6 @@ try:
                 t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
                 t.deamon = True
                 t.start()
-                # success = contact_vessel(vessel_ip, path, payload, req)
-                # if not success:
-                #     print "\n\nCould not contact vessel {}\n\n".format(vessel_id)
-
 
     # ------------------------------------------------------------------------------------------------------
     # ROUTES
@@ -144,6 +141,7 @@ try:
     def client_action_received(element_id):
         
         try:
+            # Retreive appropiate data from HTML-form
             mod_element = request.forms.get('entry')
             delete = int(request.forms.get('delete'))
 
@@ -213,6 +211,7 @@ try:
             vessel_list[str(i)] = '10.1.0.{}'.format(str(i))
 
         try:
+            # Added a reloader to refresh the all servers with the changes 
             run(app, host=vessel_list[str(node_id)], port=port, reloader=True)
         except Exception as e:
             print e
