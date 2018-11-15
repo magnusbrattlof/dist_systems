@@ -17,10 +17,9 @@ import sys
 import time
 import json
 
-# ------------------------------------------------------------------------------------------------------
 try:
+    # Initialize app object and create our board dictionary
     app = Bottle()
-
     board = {}
 
     """Board functions:
@@ -32,7 +31,7 @@ try:
         global board, node_id
         success = False
         try:
-            # Add new element with sequence number and element
+            # Add new element with sequence number and element to board
             board[entry_sequence] = element
             success = True
         except Exception as e:
@@ -44,7 +43,7 @@ try:
         global board, node_id
         success = False
         try:
-            # Update the dictionary with the modified_element
+            # Update the board dictionary with the modified_element
             board[entry_sequence] = modified_element
             success = True
         except Exception as e:
@@ -56,7 +55,7 @@ try:
         global board, node_id
         success = False
         try:
-            # Pop entry from dictionary
+            # Pop entry from the board dictionary
             board.pop(entry_sequence, None)
             success = True
         except Exception as e:
@@ -65,7 +64,8 @@ try:
 
     """How to propagate messages:
     The server that receives the post message from client calls this function
-    from propagate_vessels function. """
+    from propagate_vessels function.
+    """
     def contact_vessel(vessel_ip, path, payload=None, req='POST'):
         # Try to contact another server (vessel) through a POST or GET, once
         success = False
@@ -75,8 +75,6 @@ try:
                 res = requests.post('http://{}{}'.format(vessel_ip, path), data=payload)
             elif 'GET' in req:
                 res = requests.get('http://{}{}'.format(vessel_ip, path))
-            else:
-                print 'Non implemented feature!'
 
             if res.status_code == 200:
                 success = True
@@ -88,17 +86,19 @@ try:
         
         global vessel_list, node_id
 
+        # Create a thread for each vessel in vessel_list
+        # Execute each thread with contact_vessel as target
         for vessel_id, vessel_ip in vessel_list.items():
-            if int(vessel_id) != node_id: # don't propagate to yourself
+            if int(vessel_id) != node_id:
                 t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
                 t.deamon = True
                 t.start()
 
-    # ------------------------------------------------------------------------------------------------------
-    # ROUTES
-    # ------------------------------------------------------------------------------------------------------
-    # a single example (index) should be done for get, and one for post
-    # ------------------------------------------------------------------------------------------------------
+    """Routing functions:
+    Handles the index page plus the board page. 
+    @app.post('/board') handles how new elements are added and calls
+    correct functions for propagation to the other vessels in the system.
+    """
     @app.route('/')
     def index():
 
@@ -121,9 +121,11 @@ try:
         try:
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
+            
             # Add new entry to our dictionaty
             add_new_element_to_store(entry_id, new_element)
             propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
+            
             # Increment entry id, to keep track of number of entries
             entry_id += 1
 
@@ -178,10 +180,12 @@ try:
                 element = request.body.readlines()[0]
                 add_new_element_to_store(element_id, element)
             
+            # Fetch modified element from the http-body message and modify it.
             elif action == 'modify':
                 mod_element = request.body.readlines()[0]
                 modify_element_in_store(element_id, mod_element)
             
+            # Deletes the element with element_id
             elif action == 'delete':
                 delete_element_from_store(element_id, None)
             return True
@@ -190,13 +194,14 @@ try:
             print e
         return False
             
-    # ------------------------------------------------------------------------------------------------------
-    # EXECUTION
-    # ------------------------------------------------------------------------------------------------------
-    # a single example (index) should be done for get, and one for postGive it to the students-----------------------------------------------------------------------------------------------------
-    # Execute the code
+    """Main execution starts from here:
+    Initialization of variables and how to parse the cmd args.
+    Booting up all webservers on the vessels.
+    """
     def main():
         global vessel_list, node_id, app, entry_id
+
+        # Initialize entry_id to 0 for all vessels
         entry_id = 0
 
         port = 80
