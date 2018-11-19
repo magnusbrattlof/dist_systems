@@ -13,14 +13,59 @@ from threading import Thread
 import traceback
 import argparse
 import requests
-import sys
+import random
+import socket
 import time
 import json
+import sys
+
+# class Server:
+
+#     def __init__(self, host, port, ip, vessels):
+#         self.vessels = vessels
+#         self.host = host
+#         self.port = port
+#         self.ip = ip
+#         self.sock = socket.socket(sock.AF_INET, sock.SOCK_STREAM)
+#         self.sock.bind(self.host, self.port)
+#         self.neighbor_ip = self.ip % (len(self.vessels) + 1)
+#         self.token_id = random.randrange(1, 1025)
+#         self.is_leader = False
+#         self.leader = None
+#         self.client_sender = self.sock.connect(self.neighbor_ip, self.port)
+#         print "Succesfully create init"
+
+#     def run(self):
+#         self.sock.listen(1)
+#         while True:
+#             Thread(target=self.token_send).start()
+#             print "Token send"
+#             self.client_receiver, self.address_receiver = self.sock.accept()
+#             Thread(target=self.token_receive).start()
+#             print "Token receive"
+
+#     def token_send(self):
+#         self.client_sender.send(self.token_id.encode())
+
+#     def token_receive(self):
+#         size = 1024
+#         try:
+#             data = self.client_receiver.recv(size)
+#             if data:
+#                 neighbor_id = data
+#             else:
+#                 raise error("Something went wrong")
+        
+#         except Error as e:
+#             print e
+#             self.client_receiver.close()
+#             return False
 
 try:
     # Initialize app object and create our board dictionary
     app = Bottle()
     board = {}
+
 
     """Board functions:
     Handles how the vessels are adding new elements, 
@@ -193,14 +238,94 @@ try:
         except Exception as e:
             print e
         return False
+    
+    @app.post('/election/<message>')
+    def receive_id(message):
+        global host_id, leader_ip, leader_id, node_id, neighbor_host_addr, leader_is_elected
+        try:
+            data = json.load(request.body)
             
+            if str(node_id) in data and message == 'False' and node_id == 1:
+                leader_election(data)
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
+
+            elif str(node_id) in data and message == 'True' and node_id != 1:
+                leader_election(data)
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
+            
+            elif message == 'False':
+                data[node_id] = host_id
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
+
+            elif message == 'True' and node_id == 1:
+                print "We have a leader, terminating leader election"
+
+            else:
+                print "Nothing matched"
+
+        except Exception as e:
+            print e
+
+    def leader_election(data):
+        global leader_is_elected, consensus, leader
+
+        leader_ip, leader_id = sorting(data)
+        consensus = True
+        leader_is_elected = True
+        print "Leader is: {} with id: {}".format(leader_ip, leader_id)
+
+    def send_id(neighbor_host_addr, host_id, payload):
+        global node_id, leader_is_elected, consensus
+        try:
+
+            print "Sending to {}, consensus is {}".format(neighbor_host_addr, consensus)
+            requests.post('http://10.1.0.{}/election/{}'.format(neighbor_host_addr, consensus), json=payload)
+
+        except Exception as e:
+            print e
+
+    def sorting(data):
+        largest = 0
+        ip = 0
+        for k, v in data.iteritems():
+            if v > largest:
+                largest = v
+                ip = k
+        return (ip, largest)
+
+
+    def init_election(host_addr, nodes):
+        global host_id, neighbor_host_addr, node_id, consensus
+        
+        host_id = random.randrange(1, 1025)
+        print "my id: {}".format(host_id)
+        neighbor_host_addr = (host_addr % len(nodes)) + 1
+        payload[node_id] = host_id
+        
+        time.sleep(2)
+        # Only node 1 can start our leader election process
+        if node_id == 1:
+            send_id(neighbor_host_addr, host_id, payload)
+
+        # Implement polling of leader device to see if it is alive
+        # Also implement new leader election
+        # Everyone needs to keep track of neighbor status and leader status
+        # If P2 crash P1 need to connect to P3
+        # Kindof like this neighbor_host_addr = (host_addr % len(nodes)) + 2
+
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, entry_id
+        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus
 
+        payload = {}
+        consensus = False
+        neighbor_host_addr = None
+        leader_ip = None
+        leader_id = None
+        host_id = None
         # Initialize entry_id to 0 for all vessels
         entry_id = 0
 
@@ -216,8 +341,10 @@ try:
             vessel_list[str(i)] = '10.1.0.{}'.format(str(i))
 
         try:
-            # Added a reloader to refresh the all servers with the changes 
-            run(app, host=vessel_list[str(node_id)], port=port, reloader=True)
+            Thread(target=run, kwargs=dict(app=app, host=vessel_list[str(node_id)], port=port)).start()
+            time.sleep(2)
+            init_election(int(node_id), vessel_list)
+
         except Exception as e:
             print e
     # ------------------------------------------------------------------------------------------------------
