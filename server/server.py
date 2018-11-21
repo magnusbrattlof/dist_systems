@@ -135,9 +135,23 @@ try:
         # Execute each thread with contact_vessel as target
         for vessel_id, vessel_ip in vessel_list.items():
             if int(vessel_id) != node_id:
+                print vessel_id
                 t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
                 t.deamon = True
                 t.start()
+    
+    def propagate_to_leader(path, payload = None):
+        global leader_ip
+
+        address = "10.1.0.{}".format(leader_ip)
+        try:
+            contact_vessel(address, path, payload)
+            return True
+
+        except Exception as e:
+            print e
+        return False
+        
 
     """Routing functions:
     Handles the index page plus the board page. 
@@ -167,12 +181,17 @@ try:
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
             
-            # Add new entry to our dictionaty
-            add_new_element_to_store(entry_id, new_element)
-            propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
+            if is_leader != True:
+                # Contact leader and send received data from client
+                propagate_to_leader('/propagate/leader/add/{}'.format(None), payload=new_element)
             
-            # Increment entry id, to keep track of number of entries
-            entry_id += 1
+            # This code is only executed by the leader
+            else:
+                add_new_element_to_store(entry_id, new_element)
+                entry_id += 1
+            
+            #add_new_element_to_store(entry_id, new_element)
+            #propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
 
             return True
         except Exception as e:
@@ -192,13 +211,26 @@ try:
             mod_element = request.forms.get('entry')
             delete = int(request.forms.get('delete'))
 
-            if delete == True:
-                delete_element_from_store(element_id, None)
-                propagate_to_vessels("/propagate/delete/{}".format(element_id), payload=None)
+            if is_leader != True:
+                if delete == True:
+                    propagate_to_leader("/propagate/leader/delete/{}".format(element_id), payload=None)
+                
+                else:
+                    propagate_to_leader("/propagate/leader/modify/{}".format(element_id), payload=mod_element)
+                
+                return True
+            
             else:
-                modify_element_in_store(element_id, mod_element)
-                propagate_to_vessels("/propagate/modify/{}".format(element_id), payload=mod_element)
-            return True
+                # This is only executed by the leader in the system
+                if delete == True:
+                    delete_element_from_store(element_id, None)
+                    propagate_to_vessels("/propagate/others/delete/{}".format(element_id), payload=None)
+
+                else:
+                    modify_element_in_store(element_id, mod_element)
+                    propagate_to_vessels("/propagate/others/modify/{}".format(element_id), payload=mod_element)
+
+                return True
        
         except Exception as e:
             print e
@@ -212,28 +244,45 @@ try:
     Three actions are available, add, modify or delete. 
     The element are fetched from the http-messages body    
     """
-    @app.post('/propagate/<action>/<element_id:int>')
-    def propagation_received(action, element_id):
+    @app.post('/propagate/<to>/<action>/<element_id>')
+    def propagation_received(to, action, element_id):
         
         global entry_id
         try:
-            # Action add, adding new element to our board, updating entry_id
-            # to be consistent in our system
-            if action == 'add':
-                # Updated here and in client_add_received function
-                entry_id += 1
-                element = request.body.readlines()[0]
-                add_new_element_to_store(element_id, element)
-            
-            # Fetch modified element from the http-body message and modify it.
-            elif action == 'modify':
-                mod_element = request.body.readlines()[0]
-                modify_element_in_store(element_id, mod_element)
-            
-            # Deletes the element with element_id
-            elif action == 'delete':
-                delete_element_from_store(element_id, None)
-            return True
+            if to == 'leader':
+                if action == 'add':
+                    element = request.body.readlines()[0]
+                    add_new_element_to_store(entry_id, element)
+                    propagate_to_vessels("/propagate/others/add/{}".format(entry_id), payload=element)
+
+                    entry_id += 1
+
+                elif action == 'modify':
+                    mod_element = request.body.readlines()[0]
+                    modify_element_in_store(element_id, mod_element)
+                    propagate_to_vessels("/propagate/others/modify/{}".format(element_id), payload=mod_element)
+
+                elif action == 'delete':
+                    delete_element_from_store(element_id, None)
+                    propagate_to_vessels("/propagate/others/delete/{}".format(element_id), payload=None)
+
+            elif to == 'others':
+                # Action add, adding new element to our board, updating entry_id
+                # to be consistent in our system
+                if action == 'add':
+                    # Updated here and in client_add_received function
+                    element = request.body.readlines()[0]
+                    add_new_element_to_store(element_id, element)
+                
+                # Fetch modified element from the http-body message and modify it.
+                elif action == 'modify':
+                    mod_element = request.body.readlines()[0]
+                    modify_element_in_store(element_id, mod_element)
+                
+                # Deletes the element with element_id
+                elif action == 'delete':
+                    delete_element_from_store(element_id, None)
+                return True
 
         except Exception as e:
             print e
@@ -246,15 +295,20 @@ try:
             data = json.load(request.body)
             
             if str(node_id) in data and message == 'False' and node_id == 1:
-                leader_election(data)
+                select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             elif str(node_id) in data and message == 'True' and node_id != 1:
-                leader_election(data)
+                select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
             
             elif message == 'False':
-                data[node_id] = host_id
+                # If two nodes have the same ID add your node_id to the random number to break symmetry
+                if host_id in data.values():
+                    data[node_id] = host_id + node_id
+                else:
+                    data[node_id] = host_id
+
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             elif message == 'True' and node_id == 1:
@@ -266,12 +320,19 @@ try:
         except Exception as e:
             print e
 
-    def leader_election(data):
-        global leader_is_elected, consensus, leader
+    def select_leader(data):
+        global leader_is_elected, consensus, is_leader, leader_ip, leader_id
 
         leader_ip, leader_id = sorting(data)
+        
         consensus = True
         leader_is_elected = True
+        
+        if leader_id == host_id:
+            is_leader = True
+        else:
+            is_leader = False
+
         print "Leader is: {} with id: {}".format(leader_ip, leader_id)
 
     def send_id(neighbor_host_addr, host_id, payload):
@@ -318,7 +379,7 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus
+        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader
 
         payload = {}
         consensus = False
@@ -326,6 +387,7 @@ try:
         leader_ip = None
         leader_id = None
         host_id = None
+        is_leader = False
         # Initialize entry_id to 0 for all vessels
         entry_id = 0
 
