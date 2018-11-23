@@ -19,48 +19,6 @@ import time
 import json
 import sys
 
-# class Server:
-
-#     def __init__(self, host, port, ip, vessels):
-#         self.vessels = vessels
-#         self.host = host
-#         self.port = port
-#         self.ip = ip
-#         self.sock = socket.socket(sock.AF_INET, sock.SOCK_STREAM)
-#         self.sock.bind(self.host, self.port)
-#         self.neighbor_ip = self.ip % (len(self.vessels) + 1)
-#         self.token_id = random.randrange(1, 1025)
-#         self.is_leader = False
-#         self.leader = None
-#         self.client_sender = self.sock.connect(self.neighbor_ip, self.port)
-#         print "Succesfully create init"
-
-#     def run(self):
-#         self.sock.listen(1)
-#         while True:
-#             Thread(target=self.token_send).start()
-#             print "Token send"
-#             self.client_receiver, self.address_receiver = self.sock.accept()
-#             Thread(target=self.token_receive).start()
-#             print "Token receive"
-
-#     def token_send(self):
-#         self.client_sender.send(self.token_id.encode())
-
-#     def token_receive(self):
-#         size = 1024
-#         try:
-#             data = self.client_receiver.recv(size)
-#             if data:
-#                 neighbor_id = data
-#             else:
-#                 raise error("Something went wrong")
-        
-#         except Error as e:
-#             print e
-#             self.client_receiver.close()
-#             return False
-
 try:
     # Initialize app object and create our board dictionary
     app = Bottle()
@@ -77,7 +35,7 @@ try:
         success = False
         try:
             # Add new element with sequence number and element to board
-            board[entry_sequence] = element
+            board[str(entry_sequence)] = element
             success = True
         except Exception as e:
             print e
@@ -89,7 +47,7 @@ try:
         success = False
         try:
             # Update the board dictionary with the modified_element
-            board[entry_sequence] = modified_element
+            board[str(entry_sequence)] = modified_element
             success = True
         except Exception as e:
             print e
@@ -101,7 +59,7 @@ try:
         success = False
         try:
             # Pop entry from the board dictionary
-            board.pop(entry_sequence, None)
+            board.pop(str(entry_sequence), None)
             success = True
         except Exception as e:
             print e
@@ -188,6 +146,7 @@ try:
             # This code is only executed by the leader
             else:
                 add_new_element_to_store(entry_id, new_element)
+                propagate_to_vessels("/propagate/others/add/{}".format(entry_id), payload=new_element)
                 entry_id += 1
             
             #add_new_element_to_store(entry_id, new_element)
@@ -374,6 +333,23 @@ try:
         # If P2 crash P1 need to connect to P3
         # Kindof like this neighbor_host_addr = (host_addr % len(nodes)) + 2
 
+    def leader_election_daemon():
+        global neighbor_host_addr
+
+        neighbor_address = "10.1.0.{}".format(neighbor_host_addr)
+
+        while True:
+            time.sleep(10)
+            res = os.system("ping -c 1 " + neighbor_address)
+            
+            if res == 0:
+                print "My neighbor is up"
+            
+            elif res == 1:
+                print "My neighbor is down"
+                neighbor_host_addr = (host_addr % len(nodes)) + 2
+                print "My new neighbor is: {}".format(neighbor_host_addr)
+
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
     Booting up all webservers on the vessels.
@@ -381,15 +357,16 @@ try:
     def main():
         global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader
 
-        payload = {}
-        consensus = False
+        # Variables initialization
         neighbor_host_addr = None
+        consensus = False
+        is_leader = False
         leader_ip = None
         leader_id = None
         host_id = None
-        is_leader = False
-        # Initialize entry_id to 0 for all vessels
         entry_id = 0
+        payload = {}
+        
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
