@@ -252,13 +252,13 @@ try:
         global host_id, leader_ip, leader_id, node_id, neighbor_host_addr, leader_is_elected, initiator
         try:
             data = json.load(request.body)
-
+            print data
             if data['initiator'] == node_id:
                 initiator = True
             else:
                 initiator = False
 
-            if str(node_id) not in data and message == 'False':
+            if str(node_id) not in data:
                 if host_id in data.values():
                     data[node_id] = host_id + node_id
                 else:
@@ -267,14 +267,15 @@ try:
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             elif str(node_id) in data and message == 'False' and initiator:
+                print "First round done, init consensus round"
                 select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
-            
+
             elif str(node_id) in data and message == 'True' and initiator:
-                print "I have selected a leader from my initialization message"
+                # Terminate your election rounds
+                print "My consensus round is over"
 
             elif str(node_id) in data and message == 'True' and not initiator:
-                print "I have selected a leader from my neighbors initializations"
                 select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
@@ -282,7 +283,8 @@ try:
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             else:
-                print "Initiator: {} data: {} consensus: {}".format(data['initiator'], data, message)
+                print "NOTHING MATCHED, SAD BRANCH"
+
 
         except Exception as e:
             print e
@@ -306,7 +308,6 @@ try:
         global node_id, leader_is_elected, consensus
         try:
 
-            print "Sending to {}, consensus is {}".format(neighbor_host_addr, consensus)
             requests.post('http://10.1.0.{}/election/{}'.format(neighbor_host_addr, consensus), json=payload)
 
         except Exception as e:
