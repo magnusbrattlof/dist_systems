@@ -249,20 +249,16 @@ try:
     
     @app.post('/election/<message>')
     def receive_id(message):
-        global host_id, leader_ip, leader_id, node_id, neighbor_host_addr, leader_is_elected
+        global host_id, leader_ip, leader_id, node_id, neighbor_host_addr, leader_is_elected, initiator
         try:
             data = json.load(request.body)
-            
-            if str(node_id) in data and message == 'False' and node_id == 1:
-                select_leader(data)
-                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
-            elif str(node_id) in data and message == 'True' and node_id != 1:
-                select_leader(data)
-                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
-            
-            elif message == 'False':
-                # If two nodes have the same ID add your node_id to the random number to break symmetry
+            if data['initiator'] == node_id:
+                initiator = True
+            else:
+                initiator = False
+
+            if str(node_id) not in data and message == 'False':
                 if host_id in data.values():
                     data[node_id] = host_id + node_id
                 else:
@@ -270,11 +266,23 @@ try:
 
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
-            elif message == 'True' and node_id == 1:
-                print "We have a leader, terminating leader election"
+            elif str(node_id) in data and message == 'False' and initiator:
+                select_leader(data)
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
+            
+            elif str(node_id) in data and message == 'True' and initiator:
+                print "I have selected a leader from my initialization message"
+
+            elif str(node_id) in data and message == 'True' and not initiator:
+                print "I have selected a leader from my neighbors initializations"
+                select_leader(data)
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
+
+            elif str(node_id) in data and message == 'False' and not initiator:
+                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             else:
-                print "Nothing matched"
+                print "Initiator: {} data: {} consensus: {}".format(data['initiator'], data, message)
 
         except Exception as e:
             print e
@@ -321,11 +329,12 @@ try:
         print "my id: {}".format(host_id)
         neighbor_host_addr = (host_addr % len(nodes)) + 1
         payload[node_id] = host_id
+        payload['initiator'] = node_id
         
         time.sleep(2)
         # Only node 1 can start our leader election process
-        if node_id == 1:
-            send_id(neighbor_host_addr, host_id, payload)
+        
+        send_id(neighbor_host_addr, host_id, payload)
 
         # Implement polling of leader device to see if it is alive
         # Also implement new leader election
@@ -355,12 +364,13 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader
+        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader, initiator
 
         # Variables initialization
         neighbor_host_addr = None
         consensus = False
         is_leader = False
+        initiator = False
         leader_ip = None
         leader_id = None
         host_id = None
