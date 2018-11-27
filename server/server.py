@@ -279,9 +279,6 @@ try:
                 select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
-            elif str(node_id) in data and message == 'False' and not initiator:
-                Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
-
             else:
                 print "NOTHING MATCHED, SAD BRANCH"
 
