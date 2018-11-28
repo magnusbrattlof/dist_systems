@@ -24,7 +24,6 @@ try:
     app = Bottle()
     board = {}
 
-
     """Board functions:
     Handles how the vessels are adding new elements, 
     how to modify elements and how to delete specified elements. 
@@ -98,6 +97,9 @@ try:
                 t.deamon = True
                 t.start()
     
+    """Prepare messages before sending to leader.
+    Address will be leader ip which was determined in select_leader function.  
+    """
     def propagate_to_leader(path, payload = None):
         global leader_ip
 
@@ -148,9 +150,6 @@ try:
                 add_new_element_to_store(entry_id, new_element)
                 propagate_to_vessels("/propagate/others/add/{}".format(entry_id), payload=new_element)
                 entry_id += 1
-            
-            #add_new_element_to_store(entry_id, new_element)
-            #propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
 
             return True
         except Exception as e:
@@ -170,6 +169,7 @@ try:
             mod_element = request.forms.get('entry')
             delete = int(request.forms.get('delete'))
 
+            # Check if you are leader or not then check if the action is delete or modify
             if is_leader != True:
                 if delete == True:
                     propagate_to_leader("/propagate/leader/delete/{}".format(element_id), payload=None)
@@ -178,7 +178,9 @@ try:
                     propagate_to_leader("/propagate/leader/modify/{}".format(element_id), payload=mod_element)
                 
                 return True
-            
+           
+            # If you are the leader, first modify or delate to yourn own board
+            # then propagate the changes to the other nodes in the network
             else:
                 # This is only executed by the leader in the system
                 if delete == True:
@@ -208,6 +210,7 @@ try:
         
         global entry_id
         try:
+            # If the message are to the leader, then the following code is executed
             if to == 'leader':
                 if action == 'add':
                     element = request.body.readlines()[0]
@@ -225,6 +228,7 @@ try:
                     delete_element_from_store(element_id, None)
                     propagate_to_vessels("/propagate/others/delete/{}".format(element_id), payload=None)
 
+            # Else if the message is the the others, following code are executed
             elif to == 'others':
                 # Action add, adding new element to our board, updating entry_id
                 # to be consistent in our system
@@ -247,17 +251,24 @@ try:
             print e
         return False
     
+    """This is where the main logic of the leader election algorithm is implemented.
+    The function receives a message with either True or False which indicates if it is 
+    a concensus round or just a round where all nodes appends their id to the dictionary.
+    """
     @app.post('/election/<message>')
     def receive_id(message):
         global host_id, leader_ip, leader_id, node_id, neighbor_host_addr, leader_is_elected, initiator
         try:
+            # Fetch the data from the http-message
             data = json.load(request.body)
-            print data
+
+            # Determine if you are the initiator of the message
             if data['initiator'] == node_id:
                 initiator = True
             else:
                 initiator = False
 
+            # Append your id to the dictionary and send to your neighbor
             if str(node_id) not in data:
                 if host_id in data.values():
                     data[node_id] = host_id + node_id
@@ -266,33 +277,44 @@ try:
 
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
+            # If you are the initiator and the message has traversed the ring
+            # Select the leader with the highest id and then initiate the
+            # consensus round. 
             elif str(node_id) in data and message == 'False' and initiator:
                 print "First round done, init consensus round"
                 select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
+            # If your consensus round has traversed the network ring
+            # now there will be no more messages, terminate your election.
             elif str(node_id) in data and message == 'True' and initiator:
                 # Terminate your election rounds
-                print "My consensus round is over"
+                print "My leader election is over"
 
+            # If you are not the initiator, however another node is issuing a
+            # leader election round you have to select a leader from this payload as well.
             elif str(node_id) in data and message == 'True' and not initiator:
                 select_leader(data)
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             else:
-                print "NOTHING MATCHED, SAD BRANCH"
-
+                print "MUMBO JUMBO"
 
         except Exception as e:
             print e
 
+    """This functions is only executed iff a node is receiving a message which it initated
+    or it receives a message from another node which initiated its leader election round.
+    The function receives a parameter 'data' which contains a dictionary with all nodes
+    and their corresponding id.
+    """
     def select_leader(data):
         global leader_is_elected, consensus, is_leader, leader_ip, leader_id
 
         leader_ip, leader_id = sorting(data)
         
-        consensus = True
         leader_is_elected = True
+        consensus = True
         
         if leader_id == host_id:
             is_leader = True
@@ -301,6 +323,8 @@ try:
 
         print "Leader is: {} with id: {}".format(leader_ip, leader_id)
 
+    """"Sending payload to neighbor which contains all the nodes ids and your own id.
+    """
     def send_id(neighbor_host_addr, host_id, payload):
         global node_id, leader_is_elected, consensus
         try:
@@ -310,6 +334,9 @@ try:
         except Exception as e:
             print e
 
+    """Simple sorting algorithm which iterates through the received dictionary
+    and returns the largest id and fetches the corresponding host-address (ip-address).
+    """
     def sorting(data):
         largest = 0
         ip = 0
@@ -319,43 +346,23 @@ try:
                 ip = k
         return (ip, largest)
 
-
+    """Function is executed by every node in the network. This function handles
+    the creation of random id which is used for leader election. It also compute the neighbor
+    address.
+    """
     def init_election(host_addr, nodes):
         global host_id, neighbor_host_addr, node_id, consensus
         
-        host_id = random.randrange(1, 1025)
-        print "my id: {}".format(host_id)
         neighbor_host_addr = (host_addr % len(nodes)) + 1
-        payload[node_id] = host_id
+        host_id = random.randrange(1, 1025)
+
         payload['initiator'] = node_id
+        payload[node_id] = host_id
+        
+        print "My id: {}".format(host_id)
         
         time.sleep(2)
-        # Only node 1 can start our leader election process
-        
         send_id(neighbor_host_addr, host_id, payload)
-
-        # Implement polling of leader device to see if it is alive
-        # Also implement new leader election
-        # Everyone needs to keep track of neighbor status and leader status
-        # If P2 crash P1 need to connect to P3
-        # Kindof like this neighbor_host_addr = (host_addr % len(nodes)) + 2
-
-    def leader_election_daemon():
-        global neighbor_host_addr
-
-        neighbor_address = "10.1.0.{}".format(neighbor_host_addr)
-
-        while True:
-            time.sleep(10)
-            res = os.system("ping -c 1 " + neighbor_address)
-            
-            if res == 0:
-                print "My neighbor is up"
-            
-            elif res == 1:
-                print "My neighbor is down"
-                neighbor_host_addr = (host_addr % len(nodes)) + 2
-                print "My new neighbor is: {}".format(neighbor_host_addr)
 
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
@@ -375,7 +382,6 @@ try:
         entry_id = 0
         payload = {}
         
-
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
         parser.add_argument('--id', nargs='?', dest='nid', default=1, type=int, help='This server ID')
@@ -383,11 +389,14 @@ try:
         args = parser.parse_args()
         node_id = args.nid
         vessel_list = dict()
+        
         # We need to write the other vessels IP, based on the knowledge of their number
         for i in range(1, args.nbv):
             vessel_list[str(i)] = '10.1.0.{}'.format(str(i))
 
         try:
+            # Start the web server application in another thread 
+            # then we wait for two seconds and then executes the leader election
             Thread(target=run, kwargs=dict(app=app, host=vessel_list[str(node_id)], port=port)).start()
             time.sleep(2)
             init_election(int(node_id), vessel_list)
