@@ -111,6 +111,67 @@ try:
         except Exception as e:
             print e
         return False
+
+    """This functions is only executed iff a node is receiving a message which it initated
+    or it receives a message from another node which initiated its leader election round.
+    The function receives a parameter 'data' which contains a dictionary with all nodes
+    and their corresponding id.
+    """
+    def select_leader(data):
+        global leader_is_elected, consensus, is_leader, leader_ip, leader_id
+
+        leader_ip, leader_id = sorting(data)
+        
+        leader_is_elected = True
+        consensus = True
+        
+        if leader_id == host_id:
+            is_leader = True
+        else:
+            is_leader = False
+
+        print "Leader is: {} with id: {}".format(leader_ip, leader_id)
+
+    """"Sending payload to neighbor which contains all the nodes ids and your own id.
+    """
+    def send_id(neighbor_host_addr, host_id, payload):
+        global node_id, leader_is_elected, consensus
+        try:
+
+            requests.post('http://10.1.0.{}/election/{}'.format(neighbor_host_addr, consensus), json=payload)
+
+        except Exception as e:
+            print e
+
+    """Simple sorting algorithm which iterates through the received dictionary
+    and returns the largest id and fetches the corresponding host-address (ip-address).
+    """
+    def sorting(data):
+        largest = 0
+        ip = 0
+        for k, v in data.iteritems():
+            if v > largest:
+                largest = v
+                ip = k
+        return (ip, largest)
+
+    """Function is executed by every node in the network. This function handles
+    the creation of random id which is used for leader election. It also compute the neighbor
+    address.
+    """
+    def init_election(host_addr, nodes):
+        global host_id, neighbor_host_addr, node_id, consensus
+        
+        neighbor_host_addr = (host_addr % len(nodes)) + 1
+        host_id = random.randrange(1, 1025)
+
+        payload['initiator'] = node_id
+        payload[node_id] = host_id
+        
+        print "My id: {}".format(host_id)
+        
+        time.sleep(2)
+        send_id(neighbor_host_addr, host_id, payload)
         
 
     """Routing functions:
@@ -121,16 +182,16 @@ try:
     @app.route('/')
     def index():
 
-        global board, node_id
+        global board, node_id, leader_id, leader_ip
         print "Board: ", board
-        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
+        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se', leader_node=leader_ip, leader_id=leader_id)
 
     @app.get('/board')
     def get_board():
 
-        global board, node_id
+        global board, node_id, leader_id, leader_ip
         print board
-        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
+        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems(), leader_node=leader_ip, leader_id=leader_id))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
     def client_add_received():
@@ -298,71 +359,10 @@ try:
                 Thread(target=send_id, args=(neighbor_host_addr, host_id, data)).start()
 
             else:
-                print "MUMBO JUMBO"
+                print "Nothing matched. Error"
 
         except Exception as e:
             print e
-
-    """This functions is only executed iff a node is receiving a message which it initated
-    or it receives a message from another node which initiated its leader election round.
-    The function receives a parameter 'data' which contains a dictionary with all nodes
-    and their corresponding id.
-    """
-    def select_leader(data):
-        global leader_is_elected, consensus, is_leader, leader_ip, leader_id
-
-        leader_ip, leader_id = sorting(data)
-        
-        leader_is_elected = True
-        consensus = True
-        
-        if leader_id == host_id:
-            is_leader = True
-        else:
-            is_leader = False
-
-        print "Leader is: {} with id: {}".format(leader_ip, leader_id)
-
-    """"Sending payload to neighbor which contains all the nodes ids and your own id.
-    """
-    def send_id(neighbor_host_addr, host_id, payload):
-        global node_id, leader_is_elected, consensus
-        try:
-
-            requests.post('http://10.1.0.{}/election/{}'.format(neighbor_host_addr, consensus), json=payload)
-
-        except Exception as e:
-            print e
-
-    """Simple sorting algorithm which iterates through the received dictionary
-    and returns the largest id and fetches the corresponding host-address (ip-address).
-    """
-    def sorting(data):
-        largest = 0
-        ip = 0
-        for k, v in data.iteritems():
-            if v > largest:
-                largest = v
-                ip = k
-        return (ip, largest)
-
-    """Function is executed by every node in the network. This function handles
-    the creation of random id which is used for leader election. It also compute the neighbor
-    address.
-    """
-    def init_election(host_addr, nodes):
-        global host_id, neighbor_host_addr, node_id, consensus
-        
-        neighbor_host_addr = (host_addr % len(nodes)) + 1
-        host_id = random.randrange(1, 1025)
-
-        payload['initiator'] = node_id
-        payload[node_id] = host_id
-        
-        print "My id: {}".format(host_id)
-        
-        time.sleep(2)
-        send_id(neighbor_host_addr, host_id, payload)
 
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
