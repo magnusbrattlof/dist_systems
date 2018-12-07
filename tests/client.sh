@@ -1,5 +1,5 @@
-for ip in `seq 1 8`; do
-	for i in `seq 1 5`; do
-		curl -d 'entry=t'${i} -X 'POST' 'http://10.1.0.'${ip}'/board' &
+for ((i = 1; i <= 7; i++)); do
+	for((j = 1; j <= 2; j++)); do
+		curl -d 'entry=m'${j} -X 'POST' 'http://10.1.0.'${i}'/board' &
 	done
 done

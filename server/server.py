@@ -13,6 +13,7 @@ from threading import Thread
 import traceback
 import argparse
 import requests
+import operator
 import sys
 import time
 import json
@@ -21,19 +22,34 @@ try:
     # Initialize app object and create our board dictionary
     app = Bottle()
     board = {}
-
+    temp_board = []
+    
     """Board functions:
     Handles how the vessels are adding new elements, 
     how to modify elements and how to delete specified elements. 
     """
-    def add_new_element_to_store(entry_sequence, element, is_propagated_call=False):
+    def sort_board(temp_board):
+        global board
         
-        global board, node_id
+        d = sorted(temp_board, key=lambda element: (element[0], element[1]))
+        
+        for n, i in enumerate(d):
+            board[n] = i[2]
+
+        return board
+
+    def add_new_element_to_store(lclock, element, neigh_id):
+        
+        global board, node_id, entry_id, temp_board
         success = False
         try:
-            # Add new element with sequence number and element to board
-            board[entry_sequence] = element
+            
+            # Add the time-stamp (lclock) and neighbor id and element to temp list
+            # This list will be sorted when clients refresh their pages
+            temp_board.append((lclock, neigh_id, element))
+
             success = True
+            
         except Exception as e:
             print e
         return success
@@ -72,7 +88,7 @@ try:
         
         try:
             if 'POST' in req:
-                res = requests.post('http://{}{}'.format(vessel_ip, path), data=payload)
+                res = requests.post('http://{}{}'.format(vessel_ip, path), json=payload)
             elif 'GET' in req:
                 res = requests.get('http://{}{}'.format(vessel_ip, path))
 
@@ -102,37 +118,50 @@ try:
     @app.route('/')
     def index():
 
-        global board, node_id
-        print "Board: ", board
+        global board, node_id, entry_id, temp_board
+        board = sort_board(temp_board)
+        #print "Board: ", board
+        #print "Entry id: ", entry_id
         return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
 
     @app.get('/board')
     def get_board():
 
-        global board, node_id
-        print board
+        global board, node_id, temp_board
+        board = sort_board(temp_board)
+        #print board
+        #print "Entry id: ", entry_id
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
     def client_add_received():
         '''Adds a new element to the board
         Called directly when a user is doing a POST request on /board'''
-        global board, node_id, entry_id
+        global board, node_id, lclock
         try:
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
-            
-            # Add new entry to our dictionaty
-            add_new_element_to_store(entry_id, new_element)
-            propagate_to_vessels("/propagate/add/{}".format(entry_id), payload=new_element)
-            
-            # Increment entry id, to keep track of number of entries
-            entry_id += 1
+            # Prepare data to send to other vessels
+            body = {
+                'element': new_element,
+                'lclock': lclock,
+                'node_id': node_id,
+                'action': 'add'
+            }
 
+            # Add new entry to our dictionaty
+            add_new_element_to_store(lclock, new_element, node_id)
+            propagate_to_vessels("/propagate/add", payload=body)
+            lclock += 1
+            
             return True
         except Exception as e:
             print e
         return False
+
+    def sortBoard(board): 
+        integerParsedBoard = {int(float(k)): v for k, v in board.items()}
+        return sorted(integerParsedBoard.iteritems())
 
     """The function client_action_received receives an element_id from the POST http-message.
     The value stored on the blackboard is stored in the 'mod_element' variable
@@ -167,19 +196,23 @@ try:
     Three actions are available, add, modify or delete. 
     The element are fetched from the http-messages body    
     """
-    @app.post('/propagate/<action>/<element_id:int>')
-    def propagation_received(action, element_id):
+    @app.post('/propagate/<action>')
+    def propagation_received(action):
         
-        global entry_id
+        global entry_id, lclock
         try:
+
+            body = json.load(request.body)
+            entry = body['element']
+            neigh_lclock = body['lclock']
+            neigh_id = body['node_id']
+
             # Action add, adding new element to our board, updating entry_id
             # to be consistent in our system
             if action == 'add':
-                # Updated here and in client_add_received function
-                entry_id += 1
-                element = request.body.readlines()[0]
-                add_new_element_to_store(element_id, element)
-            
+                add_new_element_to_store(neigh_lclock, entry, neigh_id)
+                lclock += 1
+    
             # Fetch modified element from the http-body message and modify it.
             elif action == 'modify':
                 mod_element = request.body.readlines()[0]
@@ -199,10 +232,11 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, entry_id
+        global vessel_list, node_id, app, lclock, payload
 
         # Initialize entry_id to 0 for all vessels
-        entry_id = 0
+        lclock = 0
+        payload = {}
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
@@ -218,6 +252,7 @@ try:
         try:
             # Added a reloader to refresh the all servers with the changes 
             run(app, host=vessel_list[str(node_id)], port=port, reloader=True)
+
         except Exception as e:
             print e
     # ------------------------------------------------------------------------------------------------------

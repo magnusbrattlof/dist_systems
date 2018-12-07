@@ -2,6 +2,8 @@
 It will be reloaded automatically from the server -->
 <div id="boardcontents_placeholder">
 	<!-- The title comes here -->
+	<p>Leader id: {{leader_id}}</p>
+	<p>Leader node: {{leader_node}}</p>
 	<div id="boardtitle_placeholder" class="boardtitle">{{board_title}}</div>
     <input type="text" name="id" value="ID" readonly>
     <input type="text" name="entry" value="Entry" size="70%%" readonly>

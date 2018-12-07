@@ -36,3 +36,73 @@ class Server:
             print e
             self.client_receiver.close()
             return False
+
+
+""" 
+            d = {}
+            if data['entry_id'] in board:
+                if data['node_id'] > board[data['entry_id']].keys()[0]:
+                    d = {board[data['entry_id']].keys()[0]: board[data['entry_id']].values()[0]}
+                    board.update({entry_id: d})
+
+                    d = {data['node_id']: data['element']}
+                    board.update({data['entry_id']: d})
+                    print "Added {} from {}".format(data['element'], data['node_id'])
+
+                else:
+                    d = {data['node_id']: data['element']}
+                    board.update({data['entry_id']+1: d})
+                    print "Added {} from {}".format(data['element'], data['node_id'])
+           
+            else:
+                d = {data['node_id']: data['element']}
+                board.update({entry_id: d})
+                print "Added {} from {}".format(data['element'], data['node_id'])
+            #print board
+            entry_id += 1
+
+"""
+
+""" 
+                if neigh_lclock > lclock:
+                    lclock = neigh_lclock
+                    add_new_element_to_store(lclock, entry)
+                
+                elif neigh_lclock == lclock:
+                    if node_id > body['node_id']: 
+                        tmp = board[lclock]
+
+                        print("Temp entry: " + tmp)
+                        modify_element_in_store(lclock, entry)
+                        lclock += 1
+                        add_new_element_to_store(lclock, tmp)
+                    else: 
+                        lclock += 1
+                        add_new_element_to_store(lclock, entry)
+                else: 
+                    lclock += 1
+                    add_new_element_to_store(lclock, entry)
+
+
+
+
+            if lclock in temp_board:
+                d.update({neigh_id: element})
+                temp_board = dict(temp_board, **{lclock: d})
+
+            else:
+                d = {}
+                d.update({neigh_id: element})
+                temp_board = dict(temp_board, **{lclock: d})
+
+
+                            if lclock in temp_board:
+                d.update({neigh_id: element})
+                temp_board = dict(temp_board, **{lclock: d})
+
+            else:
+                d = {}
+                d.update({neigh_id: element})
+                temp_board = dict(temp_board, **{lclock: d})
+                    
+"""
