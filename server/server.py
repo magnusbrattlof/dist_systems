@@ -21,21 +21,33 @@ import json
 try:
     # Initialize app object and create our board dictionary
     app = Bottle()
-    board = {}
+    
     temp_board = []
+    board = {}
     
     """Board functions:
     Handles how the vessels are adding new elements, 
     how to modify elements and how to delete specified elements. 
     """
-    def sort_board(temp_board):
-        global board
+    def sort_board():
+        global board, del_q, mod_q, temp_board
         
         d = sorted(temp_board, key=lambda element: (element[0], element[1]))
         
-        for n, i in enumerate(d):
-            board[n] = i[2]
+        for sequence, element in enumerate(d):
+            
+            # Check if the sequence number is in delete queue, then delete it
+            if sequence in del_q:
+                delete_element_from_store(sequence, None)
+            # Check if the sequence number is in modify queue, then modify it
+            elif sequence in mod_q:
+                modify_element_in_store(sequence, mod_q[sequence])
+            # Else there is no needed actions to this sequence, add it
+            else:
+                board[sequence] = element[2]
 
+            temp_board = d
+    
         return board
 
     def add_new_element_to_store(lclock, element, neigh_id):
@@ -47,7 +59,7 @@ try:
             # Add the time-stamp (lclock) and neighbor id and element to temp list
             # This list will be sorted when clients refresh their pages
             temp_board.append((lclock, neigh_id, element))
-
+            sort_board()
             success = True
             
         except Exception as e:
@@ -56,11 +68,16 @@ try:
 
     def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
         
-        global board, node_id
+        global board, node_id, mod_q
         success = False
         try:
-            # Update the board dictionary with the modified_element
-            board[entry_sequence] = modified_element
+            if entry_sequence in board:
+                # Update the board dictionary with the modified_element
+                board[entry_sequence] = modified_element
+            else:
+                # Add the entry_sequence and element to modify queue
+                mod_q[entry_sequence] = mod_element
+
             success = True
         except Exception as e:
             print e
@@ -68,12 +85,21 @@ try:
 
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
         
-        global board, node_id
+        global board, node_id, del_q, temp_board
         success = False
         try:
-            # Pop entry from the board dictionary
-            board.pop(entry_sequence, None)
-            success = True
+            # If the sequence is in board, delete it
+            if int(entry_sequence) in board:
+                print "Deleing"
+                del board[entry_sequence]
+                del temp_board[entry_sequence]
+                print board
+                success = True
+            # Else add it to the delete queue
+            else:
+                print "not deleting"
+                del_q.append(entry_sequence)
+
         except Exception as e:
             print e
         return success
@@ -119,7 +145,7 @@ try:
     def index():
 
         global board, node_id, entry_id, temp_board
-        board = sort_board(temp_board)
+        #board = sort_board()
         #print "Board: ", board
         #print "Entry id: ", entry_id
         return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
@@ -128,7 +154,7 @@ try:
     def get_board():
 
         global board, node_id, temp_board
-        board = sort_board(temp_board)
+        #board = sort_board()
         #print board
         #print "Entry id: ", entry_id
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
@@ -170,18 +196,23 @@ try:
     """
     @app.post('/board/<element_id:int>/')
     def client_action_received(element_id):
-        
+        global del_q, mod_q
         try:
             # Retreive appropiate data from HTML-form
             mod_element = request.forms.get('entry')
             delete = int(request.forms.get('delete'))
 
+            body = {
+                'element': mod_element,
+                'element_id': element_id
+            }
+
             if delete == True:
                 delete_element_from_store(element_id, None)
-                propagate_to_vessels("/propagate/delete/{}".format(element_id), payload=None)
+                propagate_to_vessels("/propagate/delete", payload=body)
             else:
                 modify_element_in_store(element_id, mod_element)
-                propagate_to_vessels("/propagate/modify/{}".format(element_id), payload=mod_element)
+                propagate_to_vessels("/propagate/modify", payload=body)
             return True
        
         except Exception as e:
@@ -203,23 +234,26 @@ try:
         try:
 
             body = json.load(request.body)
-            entry = body['element']
-            neigh_lclock = body['lclock']
-            neigh_id = body['node_id']
+
 
             # Action add, adding new element to our board, updating entry_id
             # to be consistent in our system
             if action == 'add':
+                entry = body['element']
+                neigh_lclock = body['lclock']
+                neigh_id = body['node_id']
                 add_new_element_to_store(neigh_lclock, entry, neigh_id)
                 lclock += 1
     
             # Fetch modified element from the http-body message and modify it.
             elif action == 'modify':
-                mod_element = request.body.readlines()[0]
+                element_id = body['element_id']
+                mod_element = body['element']
                 modify_element_in_store(element_id, mod_element)
             
             # Deletes the element with element_id
             elif action == 'delete':
+                element_id = body['element_id']
                 delete_element_from_store(element_id, None)
             return True
 
@@ -232,10 +266,12 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, lclock, payload
+        global vessel_list, node_id, app, lclock, payload, del_q, mod_q
 
         # Initialize entry_id to 0 for all vessels
         lclock = 0
+        del_q = []
+        mod_q = {}
         payload = {}
 
         port = 80
