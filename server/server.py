@@ -21,20 +21,27 @@ import json
 try:
     # Initialize app object and create our board dictionary
     app = Bottle()
-    
     temp_board = []
     board = {}
     
-    """Board functions:
-    Handles how the vessels are adding new elements, 
-    how to modify elements and how to delete specified elements. 
-    """
-    def sort_board():
+    """Synchronization function which handles sorting of the real board.
+    - Sort the elements by their logical clocks, if two or more have 
+      the same logical clock, their ip address is used to break the symmetry.
+
+    - Before adding a new element to the real board, we first need to check 
+      if the new element has been issued as delete or modify by another 
+      node in the network, else we can safely add it to our board.
+     """
+    def sync_board():
         global board, del_q, mod_q, temp_board
         
-        d = sorted(temp_board, key=lambda element: (element[0], element[1]))
+        # First sort the temporary board by the logical clocks, ascending order
+        # Then we sort the temporary board by IP addresses to break symmetries
+        sorted_board = sorted(temp_board, key=lambda element: (element[0], element[1]))
         
-        for sequence, element in enumerate(d):
+        # After sorting the temp_board we can check if there are mods or deletes
+        # awaiting for some elements, else we can add it to our real board
+        for sequence, element in enumerate(sorted_board):
             
             # Check if the sequence number is in delete queue, then delete it
             if sequence in del_q:
@@ -46,20 +53,23 @@ try:
             else:
                 board[sequence] = element[2]
 
-            temp_board = d
-    
-        return board
+            # Set the temporary board to the sorted board
+            temp_board = sorted_board
 
+    """Board functions:
+    Handles how the vessels are adding new elements, 
+    how to modify elements and how to delete specified elements. 
+    """
     def add_new_element_to_store(lclock, element, neigh_id):
         
         global board, node_id, entry_id, temp_board
         success = False
         try:
             
-            # Add the time-stamp (lclock) and neighbor id and element to temp list
-            # This list will be sorted when clients refresh their pages
+            # Append the logical clock, neighbor id and element to the temp board
+            # After, we call sync_board which checks executes multiple checks and sorts
             temp_board.append((lclock, neigh_id, element))
-            sort_board()
+            sync_board()
             success = True
             
         except Exception as e:
@@ -88,16 +98,14 @@ try:
         global board, node_id, del_q, temp_board
         success = False
         try:
-            # If the sequence is in board, delete it
+            # If the sequence is in board, delete it from real board and temprary board
             if int(entry_sequence) in board:
-                print "Deleing"
                 del board[entry_sequence]
                 del temp_board[entry_sequence]
                 print board
                 success = True
             # Else add it to the delete queue
             else:
-                print "not deleting"
                 del_q.append(entry_sequence)
 
         except Exception as e:
