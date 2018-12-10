@@ -33,7 +33,7 @@ try:
       node in the network, else we can safely add it to our board.
      """
     def sync_board():
-        global board, del_q, mod_q, temp_board
+        global board, del_q, mod_q, temp_board, del_hist
         
         # First sort the temporary board by the logical clocks, ascending order
         # Then we sort the temporary board by IP addresses to break symmetries
@@ -46,6 +46,7 @@ try:
             # Check if the sequence number is in delete queue, then delete it
             if sequence in del_q:
                 delete_element_from_store(sequence, None)
+            
             # Check if the sequence number is in modify queue, then modify it
             elif sequence in mod_q:
                 modify_element_in_store(sequence, mod_q[sequence])
@@ -61,13 +62,12 @@ try:
     how to modify elements and how to delete specified elements. 
     """
     def add_new_element_to_store(lclock, element, neigh_id):
-        
         global board, node_id, entry_id, temp_board
         success = False
         try:
             
             # Append the logical clock, neighbor id and element to the temp board
-            # After, we call sync_board which checks executes multiple checks and sorts
+            # After, we call sync_board which executes multiple checks and sorts the real board
             temp_board.append((lclock, neigh_id, element))
             sync_board()
             success = True
@@ -77,7 +77,6 @@ try:
         return success
 
     def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
-        
         global board, node_id, mod_q
         success = False
         try:
@@ -94,16 +93,22 @@ try:
         return success
 
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
-        
-        global board, node_id, del_q, temp_board
+        global board, node_id, del_q, temp_board, del_hist
         success = False
         try:
             # If the sequence is in board, delete it from real board and temprary board
-            if int(entry_sequence) in board:
+            # Append to delete history, used for concurrent posts
+            if entry_sequence in board:
+                del_hist.append(entry_sequence)
                 del board[entry_sequence]
                 del temp_board[entry_sequence]
-                print board
+                
                 success = True
+            
+            # Elese if there are concurrent deletes from two nodes
+            # We check our delete history.
+            elif entry_sequence in del_hist:
+                print "Item already deleted"
             # Else add it to the delete queue
             else:
                 del_q.append(entry_sequence)
@@ -193,10 +198,6 @@ try:
             print e
         return False
 
-    def sortBoard(board): 
-        integerParsedBoard = {int(float(k)): v for k, v in board.items()}
-        return sorted(integerParsedBoard.iteritems())
-
     """The function client_action_received receives an element_id from the POST http-message.
     The value stored on the blackboard is stored in the 'mod_element' variable
     in 'delete' the value 0 or 1 is stored which we leverage to choose delete or modify
@@ -274,13 +275,14 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, lclock, payload, del_q, mod_q
+        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist
 
         # Initialize entry_id to 0 for all vessels
         lclock = 0
         del_q = []
         mod_q = {}
         payload = {}
+        del_hist = []
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
