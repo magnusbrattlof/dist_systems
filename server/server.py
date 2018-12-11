@@ -45,6 +45,7 @@ try:
             
             # Check if the sequence number is in delete queue, then delete it
             if sequence in del_q:
+                print "Cannot add item due to in delete queue... Deleting"
                 delete_element_from_store(sequence, None)
             
             # Check if the sequence number is in modify queue, then modify it
@@ -62,7 +63,7 @@ try:
     how to modify elements and how to delete specified elements. 
     """
     def add_new_element_to_store(lclock, element, neigh_id):
-        global board, node_id, entry_id, temp_board
+        global board, node_id, entry_id, temp_board, start
         success = False
         try:
             
@@ -70,6 +71,7 @@ try:
             # After, we call sync_board which executes multiple checks and sorts the real board
             temp_board.append((lclock, neigh_id, element))
             sync_board()
+            print "Time elapsed: {}\n".format((time.time() - start) % 60)
             success = True
             
         except Exception as e:
@@ -111,6 +113,7 @@ try:
                 print "Item already deleted"
             # Else add it to the delete queue
             else:
+                print "Item not in board, adding to delete queue"
                 del_q.append(entry_sequence)
 
         except Exception as e:
@@ -176,7 +179,9 @@ try:
     def client_add_received():
         '''Adds a new element to the board
         Called directly when a user is doing a POST request on /board'''
-        global board, node_id, lclock
+        global board, node_id, lclock, start
+        if not start:
+            start = time.time()
         try:
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
@@ -239,7 +244,9 @@ try:
     @app.post('/propagate/<action>')
     def propagation_received(action):
         
-        global entry_id, lclock
+        global entry_id, lclock, start
+        if not start:
+            start = time.time()
         try:
 
             body = json.load(request.body)
@@ -275,7 +282,7 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist
+        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist, start
 
         # Initialize entry_id to 0 for all vessels
         lclock = 0
@@ -283,6 +290,7 @@ try:
         mod_q = {}
         payload = {}
         del_hist = []
+        start = 0
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')

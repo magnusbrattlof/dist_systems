@@ -35,6 +35,7 @@ try:
         try:
             # Add new element with sequence number and element to board
             board[str(entry_sequence)] = element
+            print "Time elapsed: {}".format((time.time() - start) % 60)
             success = True
         except Exception as e:
             print e
@@ -197,8 +198,10 @@ try:
     def client_add_received():
         '''Adds a new element to the board
         Called directly when a user is doing a POST request on /board'''
-        global board, node_id, entry_id
+        global board, node_id, entry_id, start
         try:
+            if not start:
+                start = time.time()
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
             
@@ -269,8 +272,10 @@ try:
     @app.post('/propagate/<to>/<action>/<element_id>')
     def propagation_received(to, action, element_id):
         
-        global entry_id
+        global entry_id, start
         try:
+            if not start:
+                start = time.time()
             # If the message are to the leader, then the following code is executed
             if to == 'leader':
                 if action == 'add':
@@ -369,7 +374,7 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader, initiator
+        global vessel_list, node_id, app, entry_id, leader_ip, leader_id, leader_is_elected, payload, host_id, neighbor_host_addr, consensus, is_leader, initiator, start
 
         # Variables initialization
         neighbor_host_addr = None
@@ -381,6 +386,7 @@ try:
         host_id = None
         entry_id = 0
         payload = {}
+        start = 0
         
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
