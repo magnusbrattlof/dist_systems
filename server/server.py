@@ -19,7 +19,7 @@ import time
 import json
 
 try:
-    # Initialize app object and create our board dictionary
+    # Initialize app object and create our board data structures
     app = Bottle()
     temp_board = []
     board = {}
@@ -50,7 +50,8 @@ try:
             
             # Check if the sequence number is in modify queue, then modify it
             elif sequence in mod_q:
-                modify_element_in_store(sequence, mod_q[sequence])
+                print "Cannot add item due to in modify queue. Modifying..."
+                board[sequence] = mod_q[sequence]
             # Else there is no needed actions to this sequence, add it
             else:
                 board[sequence] = element[2]
@@ -63,7 +64,7 @@ try:
     how to modify elements and how to delete specified elements. 
     """
     def add_new_element_to_store(lclock, element, neigh_id):
-        global board, node_id, entry_id, temp_board, start
+        global board, node_id, entry_id, temp_board
         success = False
         try:
             
@@ -71,13 +72,16 @@ try:
             # After, we call sync_board which executes multiple checks and sorts the real board
             temp_board.append((lclock, neigh_id, element))
             sync_board()
-            print "Time elapsed: {}\n".format((time.time() - start) % 60)
             success = True
             
         except Exception as e:
             print e
         return success
 
+    """Function that handles modification of messages.
+    If the entry_sequence is in the board, the modification will take place.
+    Else if it is not in the board, the entry_sequence will be added to mod_q
+    """
     def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
         global board, node_id, mod_q
         success = False
@@ -87,13 +91,18 @@ try:
                 board[entry_sequence] = modified_element
             else:
                 # Add the entry_sequence and element to modify queue
-                mod_q[entry_sequence] = mod_element
+                mod_q[entry_sequence] = modified_element
+                print "Element added to modify queue"
 
             success = True
         except Exception as e:
             print e
         return success
 
+    """Function that handles deletion of elements in boards.
+    If the sequence is in the board, the delete will take place.
+    Else, must check if it is in the del_history or in the del_q.
+    """
     def delete_element_from_store(entry_sequence, is_propagated_call = False):
         global board, node_id, del_q, temp_board, del_hist
         success = False
@@ -111,7 +120,7 @@ try:
             # We check our delete history.
             elif entry_sequence in del_hist:
                 print "Item already deleted"
-            # Else add it to the delete queue
+            # Else add it to the delete queue which will be checked in sync_board function
             else:
                 print "Item not in board, adding to delete queue"
                 del_q.append(entry_sequence)
@@ -161,18 +170,14 @@ try:
     def index():
 
         global board, node_id, entry_id, temp_board
-        #board = sort_board()
-        #print "Board: ", board
-        #print "Entry id: ", entry_id
+
         return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
 
     @app.get('/board')
     def get_board():
 
         global board, node_id, temp_board
-        #board = sort_board()
-        #print board
-        #print "Entry id: ", entry_id
+
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
     @app.post('/board')
@@ -180,8 +185,6 @@ try:
         '''Adds a new element to the board
         Called directly when a user is doing a POST request on /board'''
         global board, node_id, lclock, start
-        if not start:
-            start = time.time()
         try:
             # Fetch new entry from the input form
             new_element = request.forms.get('entry')
@@ -245,12 +248,9 @@ try:
     def propagation_received(action):
         
         global entry_id, lclock, start
-        if not start:
-            start = time.time()
         try:
-
+            # Load the data into variable body
             body = json.load(request.body)
-
 
             # Action add, adding new element to our board, updating entry_id
             # to be consistent in our system
@@ -282,9 +282,9 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist, start
+        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist
 
-        # Initialize entry_id to 0 for all vessels
+        # Initialization of global variables
         lclock = 0
         del_q = []
         mod_q = {}
