@@ -8,7 +8,7 @@
 # Email {cid}@student.chalmers.se
 # ------------------------------------------------------------------------------------------------------
 
-from bottle import Bottle, run, request, template, HTTPResponse
+from bottle import Bottle, run, request, template
 from threading import Thread
 import traceback
 import argparse
@@ -23,6 +23,41 @@ try:
     app = Bottle()
     temp_board = []
     board = {}
+    
+    """Synchronization function which handles sorting of the real board.
+    - Sort the elements by their logical clocks, if two or more have 
+      the same logical clock, their ip address is used to break the symmetry.
+
+    - Before adding a new element to the real board, we first need to check 
+      if the new element has been issued as delete or modify by another 
+      node in the network, else we can safely add it to our board.
+     """
+    def sync_board():
+        global board, del_q, mod_q, temp_board, del_hist
+        
+        # First sort the temporary board by the logical clocks, ascending order
+        # Then we sort the temporary board by IP addresses to break symmetries
+        sorted_board = sorted(temp_board, key=lambda element: (element[0], element[1]))
+        
+        # After sorting the temp_board we can check if there are mods or deletes
+        # awaiting for some elements, else we can add it to our real board
+        for sequence, element in enumerate(sorted_board):
+            
+            # Check if the sequence number is in delete queue, then delete it
+            if sequence in del_q:
+                print "Cannot add item due to in delete queue... Deleting"
+                delete_element_from_store(sequence, None)
+            
+            # Check if the sequence number is in modify queue, then modify it
+            elif sequence in mod_q:
+                print "Cannot add item due to in modify queue. Modifying..."
+                board[sequence] = mod_q[sequence]
+            # Else there is no needed actions to this sequence, add it
+            else:
+                board[sequence] = element[2]
+
+            # Set the temporary board to the sorted board
+            temp_board = sorted_board
 
     """Board functions:
     Handles how the vessels are adding new elements, 
@@ -145,77 +180,117 @@ try:
 
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
-    @app.post('/vote/attack')
-    def attack():
-        global vector, node_id, vessel_list
-
+    @app.post('/board')
+    def client_add_received():
+        '''Adds a new element to the board
+        Called directly when a user is doing a POST request on /board'''
+        global board, node_id, lclock, start
         try:
-            action = "attack"
-            print "Node {} choosed {}".format(node_id, attack)
-            vector.update({node_id: action})
-            print vector
+            # Fetch new entry from the input form
+            new_element = request.forms.get('entry')
+            # Prepare data to send to other vessels
+            body = {
+                'element': new_element,
+                'lclock': lclock,
+                'node_id': node_id,
+                'action': 'add'
+            }
 
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                print "Sending vector"
+            # Add new entry to our dictionaty
+            add_new_element_to_store(lclock, new_element, node_id)
+            propagate_to_vessels("/propagate/add", payload=body)
+            lclock += 1
             
-            return HTTPResponse(status=200)
+            return True
         except Exception as e:
             print e
         return False
 
-    @app.post('/vote/retreat')
-    def retreat():
-        global vector, node_id, vessel_list
+    """The function client_action_received receives an element_id from the POST http-message.
+    The value stored on the blackboard is stored in the 'mod_element' variable
+    in 'delete' the value 0 or 1 is stored which we leverage to choose delete or modify
+    we call the correct function and later propagates the changes to the rest vessels
+    """
+    @app.post('/board/<element_id:int>/')
+    def client_action_received(element_id):
+        global del_q, mod_q
+        try:
+            # Retreive appropiate data from HTML-form
+            mod_element = request.forms.get('entry')
+            delete = int(request.forms.get('delete'))
+
+            body = {
+                'element': mod_element,
+                'element_id': element_id
+            }
+
+            if delete == True:
+                delete_element_from_store(element_id, None)
+                propagate_to_vessels("/propagate/delete", payload=body)
+            else:
+                modify_element_in_store(element_id, mod_element)
+                propagate_to_vessels("/propagate/modify", payload=body)
+            return True
+       
+        except Exception as e:
+            print e
+        return False
+
+    """Propagation_received takes two arguments, action and element_id
+    this POST http-message is issued by some vessel which has been posted with som changes
+    here we have the global variable entry_id which every vessel in the system will update accordingly
+    if there are a new element added. 
+
+    Three actions are available, add, modify or delete. 
+    The element are fetched from the http-messages body    
+    """
+    @app.post('/propagate/<action>')
+    def propagation_received(action):
         
+        global entry_id, lclock, start
         try:
-            action = "retreat"
-            print "Node {} choosed {}".format(node_id, action)
-            vector.update({node_id: action})
-            print vector
-           
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                print "Sending vector"
+            # Load the data into variable body
+            body = json.load(request.body)
+
+            # Action add, adding new element to our board, updating entry_id
+            # to be consistent in our system
+            if action == 'add':
+                entry = body['element']
+                neigh_lclock = body['lclock']
+                neigh_id = body['node_id']
+                add_new_element_to_store(neigh_lclock, entry, neigh_id)
+                lclock += 1
+    
+            # Fetch modified element from the http-body message and modify it.
+            elif action == 'modify':
+                element_id = body['element_id']
+                mod_element = body['element']
+                modify_element_in_store(element_id, mod_element)
             
-            return HTTPResponse(status=200)
+            # Deletes the element with element_id
+            elif action == 'delete':
+                element_id = body['element_id']
+                delete_element_from_store(element_id, None)
+            return True
+
         except Exception as e:
             print e
         return False
-
-    @app.post('/vote/byzantine')
-    def byzantine():
-        global vector, node_id, vessel_list
-        
-        try:
-            action = "byzantine"
-            print "Node {} choosed {}".format(node_id, action)
-            vector.update({node_id: action})
-            print vector
-
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                print "Sending vector"
             
-            return HTTPResponse(status=200)
-        except Exception as e:
-            print e
-        return False
-
-
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, vector
+        global vessel_list, node_id, app, lclock, payload, del_q, mod_q, del_hist
 
-        vector = {}
-
-
+        # Initialization of global variables
+        lclock = 0
+        del_q = []
+        mod_q = {}
+        payload = {}
+        del_hist = []
+        start = 0
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
