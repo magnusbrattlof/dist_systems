@@ -126,6 +126,26 @@ try:
                 t.deamon = True
                 t.start()
 
+    def calculate_result(vector):
+        global action
+
+        attack = 0
+        retreat = 0
+        action = None
+        print "Calculate"
+        for k, v in vector.iteritems():
+            if v == True:
+                attack += 1
+            elif v == False:
+                retreat += 1
+
+        if attack >= retreat:
+            action = True
+        else:
+            action = False
+
+        
+
     """Routing functions:
     Handles the index page plus the board page. 
     @app.post('/board') handles how new elements are added and calls
@@ -134,14 +154,14 @@ try:
     @app.route('/')
     def index():
 
-        global board, node_id, entry_id, temp_board
+        global board, node_id, entry_id, temp_board, action
 
-        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se')
+        return template('server/index.tpl', board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), members_name_string='Magnus Brattlof | brattlof@student.chalmers.se', action=action)
 
     @app.get('/board')
     def get_board():
 
-        global board, node_id, temp_board
+        global board, node_id, temp_board, action
 
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
@@ -150,16 +170,18 @@ try:
         global vector, node_id, vessel_list
 
         try:
-            action = "attack"
-            print "Node {} choosed {}".format(node_id, attack)
-            vector.update({node_id: action})
-            print vector
+            command = True
+            vector.update({str(node_id): command})
+
+            propagate_to_vessels('/propagate', vector)
 
             if len(vector) != len(vessel_list):
                 print "Do nothing"
             else:
-                print "Sending vector"
-            
+                calculate_result(vector)
+
+
+
             return HTTPResponse(status=200)
         except Exception as e:
             print e
@@ -170,16 +192,16 @@ try:
         global vector, node_id, vessel_list
         
         try:
-            action = "retreat"
-            print "Node {} choosed {}".format(node_id, action)
-            vector.update({node_id: action})
-            print vector
+            command = False
+            vector.update({str(node_id): command})
            
+            propagate_to_vessels('/propagate', vector)
+
             if len(vector) != len(vessel_list):
                 print "Do nothing"
             else:
-                print "Sending vector"
-            
+               calculate_result(vector)
+
             return HTTPResponse(status=200)
         except Exception as e:
             print e
@@ -190,15 +212,36 @@ try:
         global vector, node_id, vessel_list
         
         try:
-            action = "byzantine"
-            print "Node {} choosed {}".format(node_id, action)
-            vector.update({node_id: action})
+            command = "byzantine"
+            print "Node {} choosed {}".format(node_id, command)
+            vector.update({str(node_id): command})
             print vector
 
             if len(vector) != len(vessel_list):
                 print "Do nothing"
             else:
                 print "Sending vector"
+            
+            return HTTPResponse(status=200)
+        except Exception as e:
+            print e
+        return False
+
+    @app.post('/propagate')
+    def receive_vectors():
+        global vector, node_id, vessel_list
+        
+        try:
+            print "Propagate function"
+            body = json.load(request.body)
+            vector = body
+            print vector
+
+            if len(vector) != len(vessel_list):
+                print "Do nothing"
+            else:
+                calculate_result(vector)
+
             
             return HTTPResponse(status=200)
         except Exception as e:
@@ -211,9 +254,10 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, vector
+        global vessel_list, node_id, app, vector, action
 
         vector = {}
+        action = None
 
 
 
