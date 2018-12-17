@@ -116,7 +116,7 @@ footer {
     <button onclick="update_contents();">Refresh Vote Result</button>
 
     <div id="vote_result_placeholder">
-    <pre>Voting Results ... </pre>
+    <pre>We have concent on: {{ action }} </pre>
     </div>
 
     <!-- The board contents come here -->  
