@@ -21,7 +21,6 @@ import json
 try:
     # Initialize app object and create our board data structures
     app = Bottle()
-    temp_board = []
     board = {}
 
     """Board functions:
@@ -142,9 +141,7 @@ try:
         if attack >= retreat:
             action = True
         else:
-            action = False
-
-        
+            action = False      
 
     """Routing functions:
     Handles the index page plus the board page. 
@@ -165,83 +162,50 @@ try:
 
         return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
     # ------------------------------------------------------------------------------------------------------
-    @app.post('/vote/attack')
-    def attack():
+    @app.post('/vote/<command>')
+    def attack(command):
         global vector, node_id, vessel_list
 
         try:
-            command = True
-            vector.update({str(node_id): command})
-
-            propagate_to_vessels('/propagate', vector)
-
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                calculate_result(vector)
-
-
-
-            return HTTPResponse(status=200)
-        except Exception as e:
-            print e
-        return False
-
-    @app.post('/vote/retreat')
-    def retreat():
-        global vector, node_id, vessel_list
-        
-        try:
-            command = False
-            vector.update({str(node_id): command})
-           
-            propagate_to_vessels('/propagate', vector)
-
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-               calculate_result(vector)
-
-            return HTTPResponse(status=200)
-        except Exception as e:
-            print e
-        return False
-
-    @app.post('/vote/byzantine')
-    def byzantine():
-        global vector, node_id, vessel_list
-        
-        try:
-            command = "byzantine"
-            print "Node {} choosed {}".format(node_id, command)
-            vector.update({str(node_id): command})
-            print vector
-
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                print "Sending vector"
+            if command == 'attack':
+                d = {str(node_id): True}
+                vector.update(d)
+                propagate_to_vessels('/propagate/1', d)
             
+            elif command == 'retreat':
+                d = {str(node_id): False}
+                vector.update(d)
+                propagate_to_vessels('/propagate/1', d)
+
+            elif command == 'byzantine':
+                print "Byzantine!"
+            
+            else:
+                print "Error!"
+
+            # Check if we can proceed to step 2
+            if len(vector) == len(vessel_list):
+                propagate_to_vessels('/propagate/2', vector)
+
             return HTTPResponse(status=200)
         except Exception as e:
             print e
         return False
 
-    @app.post('/propagate')
-    def receive_vectors():
+    @app.post('/propagate/<step>')
+    def receive_vectors(step):
         global vector, node_id, vessel_list
-        
+        ip = request.environ.get('REMOTE_ADDR')
         try:
-            print "Propagate function"
-            body = json.load(request.body)
-            vector = body
-            print vector
-
-            if len(vector) != len(vessel_list):
-                print "Do nothing"
-            else:
-                calculate_result(vector)
-
+            received_vector = json.load(request.body)
+            vector.update(received_vector)                
+            
+            if step == '1' and len(vector) == len(vessel_list):
+                propagate_to_vessels('/propagate/2', vector)
+            
+            elif step == '2':
+                print "Step 2"
+                print "Received vector {} from {}".format(received_vector, ip)
             
             return HTTPResponse(status=200)
         except Exception as e:
