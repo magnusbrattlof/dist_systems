@@ -9,6 +9,7 @@
 # ------------------------------------------------------------------------------------------------------
 
 from bottle import Bottle, run, request, template, HTTPResponse
+from byzantine_behavior import *
 from threading import Thread
 import traceback
 import argparse
@@ -113,17 +114,28 @@ try:
             print e
         return success
 
-    def propagate_to_vessels(path, payload = None, req = 'POST'):
+    def propagate_to_vessels(path, payload = None, req = 'POST', byz = False):
         
         global vessel_list, node_id
 
-        # Create a thread for each vessel in vessel_list
-        # Execute each thread with contact_vessel as target
-        for vessel_id, vessel_ip in vessel_list.items():
-            if int(vessel_id) != node_id:
-                t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
-                t.deamon = True
-                t.start()
+        if byz:
+
+            for vessel_id, vessel_ip in vessel_list.items():
+                if int(vessel_id) != node_id:
+
+                    d = {node_id: payload[int(vessel_id)-1]}
+
+                    t = Thread(target=contact_vessel, args=(vessel_ip, path, d, req))
+                    t.deamon = True
+                    t.start()
+        else:
+            # Create a thread for each vessel in vessel_list
+            # Execute each thread with contact_vessel as target
+            for vessel_id, vessel_ip in vessel_list.items():
+                if int(vessel_id) != node_id:
+                    t = Thread(target=contact_vessel, args=(vessel_ip, path, payload, req,))
+                    t.deamon = True
+                    t.start()
 
     def calculate_result(vector):
         global action
@@ -164,66 +176,93 @@ try:
     # ------------------------------------------------------------------------------------------------------
     @app.post('/vote/<command>')
     def attack(command):
-        global vector, node_id, vessel_list
+        global local_vector, node_id, vessel_list, honest
 
         try:
             if command == 'attack':
+                honest = True
                 d = {str(node_id): True}
-                vector.update(d)
-                propagate_to_vessels('/propagate/1', d)
+                local_vector.update(d)
+                propagate_to_vessels('/propagate/{}/1'.format(node_id), d)
             
             elif command == 'retreat':
+                honest = True
                 d = {str(node_id): False}
-                vector.update(d)
-                propagate_to_vessels('/propagate/1', d)
+                local_vector.update(d)
+                propagate_to_vessels('/propagate/{}/1'.format(node_id), d)
 
             elif command == 'byzantine':
-                print "Byzantine!"
+                honest = False
+                byz_vector = compute_byzantine_vote_round1(len(vessel_list) -1, len(vessel_list), True)
+                propagate_to_vessels('/propagate/{}/1'.format(node_id), byz_vector, byz=True)
             
             else:
                 print "Error!"
 
             # Check if we can proceed to step 2
-            if len(vector) == len(vessel_list):
-                propagate_to_vessels('/propagate/2', vector)
+            if len(local_vector) == len(vessel_list):
+                propagate_to_vessels('/propagate/{}/2'.format(node_id), local_vector)
 
             return HTTPResponse(status=200)
         except Exception as e:
             print e
         return False
 
-    @app.post('/propagate/<step>')
-    def receive_vectors(step):
-        global vector, node_id, vessel_list
+    @app.post('/propagate/<neigh_id>/<step>')
+    def receive_vectors(step, neigh_id):
+        global local_vector, node_id, vessel_list, system_vector
+
         ip = request.environ.get('REMOTE_ADDR')
         try:
             received_vector = json.load(request.body)
-            vector.update(received_vector)                
+            local_vector.update(received_vector)
+            print "Received {} from {}".format(received_vector, ip)                
             
-            if step == '1' and len(vector) == len(vessel_list):
-                propagate_to_vessels('/propagate/2', vector)
+            if step == '1' and len(local_vector) == len(vessel_list):
+                propagate_to_vessels('/propagate/{}/2'.format(node_id), local_vector)
             
             elif step == '2':
-                print "Step 2"
-                print "Received vector {} from {}".format(received_vector, ip)
-            
+                system_vector.update({neigh_id: received_vector})
+
+                if len(system_vector) == len(vessel_list) - 1:
+                    step2()
+
             return HTTPResponse(status=200)
         except Exception as e:
             print e
         return False
 
+    def step2():
+        global action
+
+        system_vector.update({node_id: local_vector})
+        attack = 0
+        retreat = 0
+
+        for key, values in system_vector.iteritems():
+            for k, v in values.iteritems():
+                
+                if v == True:
+                    attack += 1
+                elif v == False:
+                    retreat += 1
+
+        if attack >= retreat:
+            action = True
+        else:
+            action = False
 
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, vector, action
+        global vessel_list, node_id, app, local_vector, action, system_vector, honest
 
-        vector = {}
+        local_vector = {}
+        system_vector = {}
         action = None
-
-
+        honest = False
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
