@@ -114,7 +114,7 @@ try:
             print e
         return success
 
-    def propagate_to_vessels(path, payload = None, req = 'POST', byz = False):
+    def propagate_to_vessels(path, payload = None, req = 'POST', byz = False, step = None):
         
         global vessel_list, node_id
 
@@ -123,7 +123,19 @@ try:
             for vessel_id, vessel_ip in vessel_list.items():
                 if int(vessel_id) != node_id:
 
-                    d = {node_id: payload[int(vessel_id)-1]}
+                    if step == '1':
+                        d = {node_id: payload[int(vessel_id)-1]}
+
+                    else:
+
+                        v = {}
+
+                        for n, i in enumerate(payload[int(vessel_id)-1]):
+                            v.update({n+1: i})
+
+                        d = {node_id: v}    
+                        print d
+                            
 
                     t = Thread(target=contact_vessel, args=(vessel_ip, path, d, req))
                     t.deamon = True
@@ -194,7 +206,7 @@ try:
             elif command == 'byzantine':
                 honest = False
                 byz_vector = compute_byzantine_vote_round1(len(vessel_list) -1, len(vessel_list), True)
-                propagate_to_vessels('/propagate/{}/1'.format(node_id), byz_vector, byz=True)
+                propagate_to_vessels('/propagate/{}/1'.format(node_id), byz_vector, byz=True, step='1')
             
             else:
                 print "Error!"
@@ -210,22 +222,37 @@ try:
 
     @app.post('/propagate/<neigh_id>/<step>')
     def receive_vectors(step, neigh_id):
-        global local_vector, node_id, vessel_list, system_vector
+        global local_vector, node_id, vessel_list, system_vector, byz_counter
 
         ip = request.environ.get('REMOTE_ADDR')
         try:
             received_vector = json.load(request.body)
             local_vector.update(received_vector)
-            print "Received {} from {}".format(received_vector, ip)                
             
-            if step == '1' and len(local_vector) == len(vessel_list):
-                propagate_to_vessels('/propagate/{}/2'.format(node_id), local_vector)
-            
-            elif step == '2':
-                system_vector.update({neigh_id: received_vector})
+            # Here we must wait until we have received all vectors from step 2
+            if honest == False:
+                byz_counter += 1
+                if byz_counter == len(vessel_list) - 1:
+                    byz_vector = compute_byzantine_vote_round2(len(vessel_list) -1, len(vessel_list), True)
+                    
+                    print "Hello"
+                    propagate_to_vessels('/propagate/{}/2'.format(node_id), byz_vector, byz=True)
 
-                if len(system_vector) == len(vessel_list) - 1:
-                    step2()
+            else:
+
+                # Check if we have received all votes from all the nodes
+                # If we have, we can proceed to step 2 where we send our local vector
+                if step == '1' and len(local_vector) == len(vessel_list):
+                    propagate_to_vessels('/propagate/{}/2'.format(node_id), local_vector)
+                
+                elif step == '2':
+                    system_vector.update({neigh_id: received_vector})
+
+                    if len(system_vector) == len(vessel_list) - 1:
+                        # Add my local vector to the system vector and start calculate
+                        system_vector.update({node_id: local_vector})
+                        print system_vector
+                        step2()
 
             return HTTPResponse(status=200)
         except Exception as e:
@@ -257,12 +284,13 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, local_vector, action, system_vector, honest
+        global vessel_list, node_id, app, local_vector, action, system_vector, honest, byz_counter
 
         local_vector = {}
         system_vector = {}
         action = None
-        honest = False
+        honest = None
+        byz_counter = 0
 
         port = 80
         parser = argparse.ArgumentParser(description='Your own implementation of the distributed blackboard')
