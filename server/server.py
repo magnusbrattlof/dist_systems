@@ -117,7 +117,7 @@ try:
     def propagate_to_vessels(path, payload = None, req = 'POST', byz = False, step = None):
         
         global vessel_list, node_id
-
+        v = {}
         if byz:
 
             for vessel_id, vessel_ip in vessel_list.items():
@@ -129,13 +129,10 @@ try:
                     else:
 
                         v = {}
-
                         for n, i in enumerate(payload[int(vessel_id)-1]):
                             v.update({n+1: i})
 
-                        d = {node_id: v}    
-                        print d
-                            
+                        d = v
 
                     t = Thread(target=contact_vessel, args=(vessel_ip, path, d, req))
                     t.deamon = True
@@ -222,7 +219,7 @@ try:
 
     @app.post('/propagate/<neigh_id>/<step>')
     def receive_vectors(step, neigh_id):
-        global local_vector, node_id, vessel_list, system_vector, byz_counter
+        global local_vector, node_id, vessel_list, system_vector, byz_counter, lv
 
         ip = request.environ.get('REMOTE_ADDR')
         try:
@@ -235,7 +232,6 @@ try:
                 if byz_counter == len(vessel_list) - 1:
                     byz_vector = compute_byzantine_vote_round2(len(vessel_list) -1, len(vessel_list), True)
                     
-                    print "Hello"
                     propagate_to_vessels('/propagate/{}/2'.format(node_id), byz_vector, byz=True)
 
             else:
@@ -244,14 +240,12 @@ try:
                 # If we have, we can proceed to step 2 where we send our local vector
                 if step == '1' and len(local_vector) == len(vessel_list):
                     propagate_to_vessels('/propagate/{}/2'.format(node_id), local_vector)
+                    system_vector.update({node_id: local_vector})
                 
                 elif step == '2':
                     system_vector.update({neigh_id: received_vector})
 
-                    if len(system_vector) == len(vessel_list) - 1:
-                        # Add my local vector to the system vector and start calculate
-                        system_vector.update({node_id: local_vector})
-                        print system_vector
+                    if len(system_vector) == len(vessel_list) - 1:       
                         step2()
 
             return HTTPResponse(status=200)
@@ -262,13 +256,11 @@ try:
     def step2():
         global action
 
-        system_vector.update({node_id: local_vector})
         attack = 0
         retreat = 0
-
         for key, values in system_vector.iteritems():
+            print key, values
             for k, v in values.iteritems():
-                
                 if v == True:
                     attack += 1
                 elif v == False:
@@ -284,10 +276,11 @@ try:
     Booting up all webservers on the vessels.
     """
     def main():
-        global vessel_list, node_id, app, local_vector, action, system_vector, honest, byz_counter
+        global vessel_list, node_id, app, local_vector, action, system_vector, honest, byz_counter, lv
 
         local_vector = {}
         system_vector = {}
+        lv = {}
         action = None
         honest = None
         byz_counter = 0
