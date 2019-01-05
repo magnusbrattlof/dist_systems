@@ -24,76 +24,6 @@ try:
     app = Bottle()
     board = {}
 
-    """Board functions:
-    Handles how the vessels are adding new elements, 
-    how to modify elements and how to delete specified elements. 
-    """
-    def add_new_element_to_store(lclock, element, neigh_id):
-        global board, node_id, entry_id, temp_board
-        success = False
-        try:
-            
-            # Append the logical clock, neighbor id and element to the temp board
-            # After, we call sync_board which executes multiple checks and sorts the real board
-            temp_board.append((lclock, neigh_id, element))
-            sync_board()
-            success = True
-            
-        except Exception as e:
-            print e
-        return success
-
-    """Function that handles modification of messages.
-    If the entry_sequence is in the board, the modification will take place.
-    Else if it is not in the board, the entry_sequence will be added to mod_q
-    """
-    def modify_element_in_store(entry_sequence, modified_element, is_propagated_call = False):
-        global board, node_id, mod_q
-        success = False
-        try:
-            if entry_sequence in board:
-                # Update the board dictionary with the modified_element
-                board[entry_sequence] = modified_element
-            else:
-                # Add the entry_sequence and element to modify queue
-                mod_q[entry_sequence] = modified_element
-                print "Element added to modify queue"
-
-            success = True
-        except Exception as e:
-            print e
-        return success
-
-    """Function that handles deletion of elements in boards.
-    If the sequence is in the board, the delete will take place.
-    Else, must check if it is in the del_history or in the del_q.
-    """
-    def delete_element_from_store(entry_sequence, is_propagated_call = False):
-        global board, node_id, del_q, temp_board, del_hist
-        success = False
-        try:
-            # If the sequence is in board, delete it from real board and temprary board
-            # Append to delete history, used for concurrent posts
-            if entry_sequence in board:
-                del_hist.append(entry_sequence)
-                del board[entry_sequence]
-                del temp_board[entry_sequence]
-                
-                success = True
-            
-            # Elese if there are concurrent deletes from two nodes
-            # We check our delete history.
-            elif entry_sequence in del_hist:
-                print "Item already deleted"
-            # Else add it to the delete queue which will be checked in sync_board function
-            else:
-                print "Item not in board, adding to delete queue"
-                del_q.append(entry_sequence)
-
-        except Exception as e:
-            print e
-        return success
-
     """How to propagate messages:
     The server that receives the post message from client calls this function
     from propagate_vessels function.
@@ -181,7 +111,7 @@ try:
 
         global board, node_id, temp_board, action
 
-        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()))
+        return template('server/boardcontents_template.tpl',board_title='Vessel {}'.format(node_id), board_dict=sorted(board.iteritems()), action=action)
     # ------------------------------------------------------------------------------------------------------
     @app.post('/vote/<command>')
     def attack(command):
@@ -259,7 +189,6 @@ try:
         attack = 0
         retreat = 0
         for key, values in system_vector.iteritems():
-            print key, values
             for k, v in values.iteritems():
                 if v == True:
                     attack += 1
@@ -271,6 +200,7 @@ try:
         else:
             action = False
 
+        print action
     """Main execution starts from here:
     Initialization of variables and how to parse the cmd args.
     Booting up all webservers on the vessels.
